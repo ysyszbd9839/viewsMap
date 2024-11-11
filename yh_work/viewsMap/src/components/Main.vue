@@ -3,6 +3,7 @@
     <InitAMap
       ref="map"
       @viewCard="viewCard"
+      @viewDataCard="viewDataCard"
       :longitude="longitude"
       :latitude="latitude"
     ></InitAMap>
@@ -45,6 +46,24 @@
         >确定</Button
       >
     </Card>
+    <Card dis-hover class="data-card-list" v-show="dataCard.isView">
+      <p slot="title" class="data-card-list-title">操作数据工具栏</p>
+      <div>
+        <span>经度：</span><Input v-model="dataCard.lon" style="width:150px" />
+      </div>
+      <div style="margin-top: 10px">
+        纬度：<Input v-model="dataCard.lat" style="width:150px" />
+      </div>
+      <Button style="margin-top: 10px" type="primary" @click="modifyPosition"
+        >确定</Button
+      >
+      <Button style="margin-top: 10px" type="warning" @click="modifyPosition"
+        >删除</Button
+      >
+      <Button style="margin-top: 10px" type="success" @click="modifyPosition"
+        >下载文件</Button
+      >
+    </Card>
   </div>
 </template>
 
@@ -72,7 +91,12 @@ export default {
       isViewCard: false,
       longitude: "",
       latitude: "",
-      rangChecked: "null"
+      rangChecked: "null",
+      dataCard: {
+        isView: true,
+        lon: "",
+        lat: ""
+      }
     };
   },
 
@@ -81,6 +105,9 @@ export default {
     window.oncontextmenu = function(e) {
       e.preventDefault();
     };
+    this.$bus.$on("YhFileOk", value => {
+      this.dataCard.isView = true;
+    });
   },
 
   methods: {
@@ -88,6 +115,13 @@ export default {
       this.isViewCard = true;
       this.longitude = point[0] + "";
       this.latitude = point[1] + "";
+    },
+    // 操作点数据的卡片信息
+    viewDataCard(point) {
+      this.dataCard.isView = true;
+      this.isViewCard = false;
+      this.dataCard.lon = point[0] + "";
+      this.dataCard.lat = point[1] + "";
     },
 
     viewData(data) {
@@ -142,6 +176,14 @@ export default {
   position: fixed !important;
   top: 170px;
   right: 15px;
+}
+.data-card-list {
+  position: fixed !important;
+  top: 190px;
+  left: 15px;
+}
+.data-card-list-title {
+  font-weight: 900 !important;
 }
 
 .bg {

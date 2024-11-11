@@ -1,5 +1,5 @@
 /*
- * @LastEditTime: 2024-11-07 16:26:02
+ * @LastEditTime: 2024-11-11 19:13:49
  * @Description:
  */
 import * as Cesium from "Cesium";
@@ -70,7 +70,6 @@ function addPrimitive(instances, color, type) {
 
 //添加instances
 function addInstance(id, wgs84Line, width) {
-
   let instance = new Cesium.GeometryInstance({
     id: id,
     geometry: new Cesium.PolylineGeometry({

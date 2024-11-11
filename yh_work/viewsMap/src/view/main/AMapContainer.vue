@@ -1,5 +1,5 @@
 <!--
- * @LastEditTime: 2024-11-08 15:53:58
+ * @LastEditTime: 2024-11-11 19:29:14
  * @Description: 
 -->
 <template>
@@ -70,10 +70,12 @@ export default {
         rangNum: 0,
         currentNum: -1
       },
-      operationSign: -1, // 操作数据标识，-1：还不能操作数据、0：可以开始操作数据但是未处于选中线状态、1：选中线状态、2：选择点并操作点状态
+      operationSign: -1, // 操作数据标识，-1：还不能操作数据、0：可以开始操作数据但是未处于选中状态、1：选中状态、2：移动状态
       operationData: {
-        lineData: {}
-      }
+        lineData: {},
+        selectPointPick: null
+      },
+      yhData: {},
     };
   },
 
@@ -89,7 +91,7 @@ export default {
       console.log(value, "value---接收文件情理信号");
     });
     this.$bus.$on("JSONData", value => {
-      console.log("SD数据", value);
+      console.log("数据", value);
       if (value.fileName.includes("SD")) {
         //这是SD导航数据
         SDList = value.data.result;
@@ -125,9 +127,11 @@ export default {
         });
         this.$bus.$emit("treeList", treeList);
       } else {
+        this.yhData = value.data;
         origin_utm_x = value.data.origin_utm_x;
         origin_utm_y = value.data.origin_utm_y;
         segmentList = value.data.segments;
+        this.$bus.$emit("YhFileOk", true);
 
         if (lanePrimitive) {
           viewer.scene.primitives.remove(lanePrimitive);
@@ -363,9 +367,38 @@ export default {
         console.log(err, "err");
       }
     });
+    window.addEventListener("keydown", event => {
+      console.log(this.operationSign, "this.operationSign", event.key);
+
+      if (
+        (event.key === "Delete" || event.key === "Backspace") &&
+        this.operationSign == 1
+      ) {
+        console.log("del事件");
+      }
+    });
   },
 
   methods: {
+    throttle(func, limit) {
+      let lastFunc;
+      let lastRan;
+      return function(...args) {
+        const context = this;
+        if (!lastRan) {
+          func.apply(context, args);
+          lastRan = Date.now();
+        } else {
+          clearTimeout(lastFunc);
+          lastFunc = setTimeout(function() {
+            if (Date.now() - lastRan >= limit) {
+              func.apply(context, args);
+              lastRan = Date.now();
+            }
+          }, limit - (Date.now() - lastRan));
+        }
+      };
+    },
     // 测距用来获取坐标
     getPosition(position) {
       return viewer.camera.pickEllipsoid(
@@ -542,6 +575,7 @@ export default {
         yhType: "yh"
       };
     },
+    // 绘制yh线条
     drawYhLine(title, type, color) {
       // console.log(treeList, 'treeList', segmentList);
 
@@ -577,9 +611,12 @@ export default {
           laneTree,
           segmentList[i].associated_stoplineId,
           segmentList[i].crossing,
-          segmentList[i].quality_score
+          segmentList[i].quality_score,
+          i
         );
       }
+      console.log(laneInstances, "laneInstances-------------", type);
+
       if (type == "YHlane") {
         lanePrimitive = Draw.addPrimitive(
           laneInstances,
@@ -607,7 +644,8 @@ export default {
       treeList,
       stoplineId,
       segmCrossing = "",
-      segmScore = ""
+      segmScore = "",
+      segmentIndex
     ) {
       for (let i = 0; i < datalist.length; i++) {
         let property = this.setYHProperty(
@@ -618,7 +656,9 @@ export default {
           successorSegmentIds,
           stoplineId,
           segmCrossing,
-          segmScore
+          segmScore,
+          segmentIndex, // segmentList的index
+          i // lane的index
         );
         if (property) {
           let instance = Draw.addInstance(
@@ -648,7 +688,9 @@ export default {
       successorSegmentIds,
       stoplineId,
       segmCrossing = "",
-      segmScore = ""
+      segmScore = "",
+      segmentIndex = -1, // segmentList的index
+      laneIndex = -1 // lane的index
     ) {
       let line = item.points;
       let wgs84Line = this.updateYHPoint(line);
@@ -667,7 +709,9 @@ export default {
         predecessor_segment_ids: predecessorSegmentIds,
         successor_segment_ids: successorSegmentIds,
         predecessor_lane_ids: item.predecessor_lane_ids || [],
-        successor_lane_ids: item.successor_lane_ids || []
+        successor_lane_ids: item.successor_lane_ids || [],
+        segmentIndex: segmentIndex,
+        laneIndex: laneIndex
       };
       if (type == "YHlane") {
         property = {
@@ -949,6 +993,8 @@ export default {
       this.setPolyLineStyle(this.selectProperty, true);
       this.drawPoint(this.selectProperty);
     },
+    // 删除点
+    delPosition() {},
 
     addClickEvent() {
       let handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
@@ -1139,31 +1185,24 @@ export default {
 
           let property;
 
-          console.log(pickedFeature.id, "pickedFeature.id==============");
           if (pickedFeature.id.typeName == "selectData") {
             property = pickedFeature.id.info;
             that.setPolyLineStyle(property, false);
           } else {
             property = JSON.parse(pickedFeature.id);
+            // 左击事件用来选线
             if (property.typeName == "point") {
-              //点击的是点
-              console.log("点击：点");
-
-              that.updatePointColor(property.index);
-              that.$emit("viewCard", property.point);
+              // 在不操作数据的状态下选中点
+              if (that.operationSign == -1) {
+                console.log("点击：点", that.operationSign);
+                that.updatePointColor(property.index);
+                that.$emit("viewCard", property.point);
+              }
             } else if (property.typeName == "segm") {
               that.$bus.$emit("polyData", property);
               that.setPolyLineStyle(property, false);
             } else {
               console.log("点击：线");
-              if (
-                that.operationSign == 0 &&
-                (property.typeName == "YHlane" ||
-                  property.typeName == "YHMarking")
-              ) {
-                that.operationSign = 1;
-                that.operationData.lineData = property;
-              }
               that.selectProperty = property;
               that.setPolyLineStyle(property, false);
             }
@@ -1186,9 +1225,9 @@ export default {
           );
           if (that.rangChecked != "null") return;
           let pickedFeature = viewer.scene.pick(event.position);
-          console.log(Cesium.defined(pickedFeature), 'pickedFeature========');
-          
+
           if (!Cesium.defined(pickedFeature)) return;
+          if (pickedFeature.id.typeName == "selectData") return;
           if (
             that.rangChecked == "null" &&
             pickedFeature.id.lineIndex > -1 &&
@@ -1198,18 +1237,20 @@ export default {
           ) {
             return;
           }
-          if (
-            !pickedFeature.id ||
-            !pickedFeature.id.typeName ||
-            pickedFeature.id.typeName == "selectData"
-          ) {
-            return;
-          }
           let property = JSON.parse(pickedFeature.id);
           if (property.typeName == "point") {
+            // 按下事件用来更新点数据
+            if (that.operationSign != -1) {
+              // 调整点状态为：移动中
+              that.operationSign = 2;
+            }
+            that.$emit("viewDataCard", property.point);
             //点击的是点
             that.updatePointColor(property.index);
-            console.log("点----按下");
+            that.operationData.selectPointPick = pointsDataSource.get(
+              property.index
+            );
+            console.log("点----按下", that.operationData.selectPointPick);
 
             let cartesian = viewer.scene.pickPosition(event.position);
             let cartographic = Cesium.Cartographic.fromCartesian(cartesian);
@@ -1257,7 +1298,7 @@ export default {
         that.$bus.$emit("isViewInfo", property);
       }, Cesium.ScreenSpaceEventType.RIGHT_CLICK);
       //鼠标移动事件
-      handler.setInputAction(function(event) {
+      handler.setInputAction(event => {
         try {
           if (that.rangChecked != "null") {
             const position = that.getPosition(event.endPosition);
@@ -1281,22 +1322,40 @@ export default {
             return;
           }
           let pickedObject = viewer.scene.pick(event.endPosition);
-
+          // 操作数据 已选中点元素
+          if (that.operationSign == 2) {
+            let move_cartesian, move_cartographic;
+            move_cartesian = viewer.camera.pickEllipsoid(
+              event.endPosition,
+              viewer.scene.globe.ellipsoid
+            );
+            move_cartographic = Cesium.Cartographic.fromCartesian(
+              move_cartesian
+            );
+            that.lon = Number(
+              Cesium.Math.toDegrees(move_cartographic.longitude).toFixed(7)
+            );
+            that.lat = Number(
+              Cesium.Math.toDegrees(move_cartographic.latitude).toFixed(7)
+            );
+            that.operationData.selectPointPick.position = Cesium.Cartesian3.fromDegrees(
+              that.lon,
+              that.lat,
+              0.1
+            );
+            that.$emit("viewDataCard", [that.lon, that.lat]);
+            return;
+          }
           if (!Cesium.defined(pickedObject)) {
             viewer._container.style.cursor = "default";
             return;
           } else {
             viewer._container.style.cursor = "pointer";
           }
-          // if (pickedObject.id && pickedObject.id.lineIndex > -1) {
-          //   return;
-          // }
           if (pickedObject.id.typeName == "selectData") {
           } else {
             let property = JSON.parse(pickedObject.id);
             if (that.dragFlag && property.typeName == "point") {
-              console.log("moving");
-
               that.isMovePosition = true;
               let cartesian = viewer.scene.pickPosition(event.endPosition);
               let cartographic = Cesium.Cartographic.fromCartesian(cartesian);
@@ -1306,8 +1365,8 @@ export default {
               that.lat = Number(
                 Cesium.Math.toDegrees(cartographic.latitude).toFixed(7)
               );
-              let selectPoint = pointsDataSource.get(that.selectPointIndex);
-              selectPoint.position = Cesium.Cartesian3.fromDegrees(
+
+              that.operationData.selectPointPick.position = Cesium.Cartesian3.fromDegrees(
                 that.lon,
                 that.lat,
                 0.1
@@ -1323,6 +1382,8 @@ export default {
       handler.setInputAction(function(event) {
         if (that.operationSign == 2) {
           that.operationSign = 1;
+          viewer.scene.screenSpaceCameraController.enableRotate = true; //恢复相机
+          that.updatePosition();
         }
         if (that.dragFlag) {
           that.dragFlag = false;
@@ -1338,6 +1399,12 @@ export default {
     //更新点的颜色
     updatePointColor(index) {
       this.selectPointIndex = index;
+      console.log(
+        pointsDataSource,
+        "pointsDataSource",
+        pointsDataSource.length
+      );
+
       for (let i = 0; i < pointsDataSource.length; ++i) {
         let p = pointsDataSource.get(i);
         p.color = Cesium.Color.GREEN;
@@ -1353,6 +1420,8 @@ export default {
         pointsDataSource.removeAll();
       }
       //绘制点
+      console.log(property, "property ");
+
       property.point.forEach((item, index) => {
         let property = {
           typeName: "point",

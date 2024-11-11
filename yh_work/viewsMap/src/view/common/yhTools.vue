@@ -1,10 +1,16 @@
 <!--
- * @LastEditTime: 2024-11-08 13:39:10
+ * @LastEditTime: 2024-11-11 16:27:24
  * @Description: 
 -->
 <template>
   <div class="tool-box">
-    <Button type="success" @click="handleData">操作数据</Button>
+    <Button
+      v-show="isViewHandleData"
+      type="success"
+      @click="handleData"
+      class="data-btn"
+      >操作数据</Button
+    >
     <Poptip width="170" placement="bottom-end">
       <Button icon="ios-git-merge" type="info" @click="handleRang">测距</Button>
       <div class="api" slot="content">
@@ -23,9 +29,15 @@ export default {
     }
   },
   data() {
-    return {};
+    return {
+      isViewHandleData: true
+    };
   },
-  mounted() {},
+  mounted() {
+    this.$bus.$on("YhFileOk", value => {
+      this.isViewHandleData = true;
+    });
+  },
   methods: {
     handleRang() {
       this.$bus.$emit("rangFun", {
@@ -33,10 +45,6 @@ export default {
       });
     },
     handleData() {
-      this.$Message.warning({
-        content: "操作数据中",
-        duration: 0
-      });
       this.$bus.$emit("handleData", {
         operationSign: 0
       });
@@ -50,7 +58,10 @@ export default {
   height: 40px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
+}
+.data-btn {
+  margin-right: 12px;
 }
 .rang-tip {
   width: 100%;
